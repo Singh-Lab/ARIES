@@ -33,10 +33,19 @@ cd ARIES
 ```
 
 ### 2) Create the conda environment
+
+**Linux:**
 ```
 conda env create -f environment.yml
 conda activate ARIES
 ```
+
+**macOS:**
+```
+conda env create -f environment-osx-arm64.yml
+conda activate ARIES
+```
+The Linux `environment.yml` pins CUDA-specific builds and will not solve on macOS; use the `osx-arm64` file instead. It installs the CPU/MPS build of PyTorch.
 
 ### 3) Install the ARIES package
 ```
@@ -45,25 +54,46 @@ pip install .
 
 ### 4) Run ARIES from command line
 
-#### Built-in datasets (automatically downloaded; SP and TC scores generated automatically)
+`--input` is a **path to a folder** containing one FASTA file per alignment: each `.fasta`
+holds the unaligned sequences of a single protein family and is aligned independently.
+ARIES writes one aligned FASTA per input file to `--output-dir`, named by the input's
+filename stem. Because `--input` is a path, ARIES can be run from any directory.
+
+#### Bundled benchmark datasets
+The `BAliBASE`, `HOMSTRAD`, and `QuanTest2` benchmarks download with the repository under
+`datasets/`. Point `--input` at
+their `inputs` folder:
 ```
-aries --input BAliBASE --output-dir ./outputs/BAliBASE
-aries --input HOMSTRAD --output-dir ./outputs/HOMSTRAD
-aries --input QuanTest2 --output-dir ./outputs/QuanTest2
+aries --input ./datasets/BAliBASE/inputs --output-dir ./outputs/BAliBASE
+aries --input ./datasets/HOMSTRAD/inputs --output-dir ./outputs/HOMSTRAD
+aries --input ./datasets/QuanTest2/inputs --output-dir ./outputs/QuanTest2
 ```
+SP/TC scores are generated automatically for these, because each dataset folder pairs an
+`inputs` directory with an accompanying `reference_outputs` directory (see auto-scoring below).
 
 #### Custom input folder (optional reference alignment directory for SP/TC scoring)
 ```
-aries --input /path/to/fastas --output-dir ./path/to/outputs
-aries --input /path/to/fastas --ref-dir /path/to/refs --output-dir ./tmp/out
+aries --input /path/to/fastas --output-dir /path/to/outputs
+aries --input /path/to/fastas --ref-dir /path/to/refs --output-dir /path/to/outputs
 ```
 
 Notes:
 - Input files must be FASTA (`.fasta`).
 - Reference files must be FASTA (`.aln`, `.fasta`, or `.fa`).
-- Reference filenames must match the corresponding input filename stem to enable scoring.
+- Each reference file is matched to its input by filename stem (e.g. `PF001.fasta` ↔ `PF001.aln`); unmatched inputs are still aligned, just not scored.
+- **Auto-scoring**: if `--ref-dir` is omitted and the input folder is named `inputs` with an accompanying `reference_outputs/` directory, references are detected automatically and scoring is enabled. Otherwise pass `--ref-dir` explicitly.
 - Required arguments: `--input` (or `-i`) and `--output-dir` (or `-o`).
+- ARIES writes temporary scratch files (guide trees, intermediate alignments) to a `./tmp` directory in the current working directory.
 - Run `aries -h` to see all options and defaults.
+
+#### Device selection
+By default `--device auto` selects the best available backend: CUDA on Linux (NVIDIA), Metal (MPS) on Apple Silicon, otherwise CPU. You can also request a backend explicitly:
+```
+aries --input ./datasets/HOMSTRAD/inputs --output-dir ./outputs/HOMSTRAD --device cuda   # Linux GPU
+aries --input ./datasets/HOMSTRAD/inputs --output-dir ./outputs/HOMSTRAD --device mps    # Apple Silicon
+aries --input ./datasets/HOMSTRAD/inputs --output-dir ./outputs/HOMSTRAD --device cpu    # any platform
+```
+If a requested backend is unavailable, ARIES prints a warning and falls back to CPU. On macOS, if a PLM operation lacks a Metal kernel, set `PYTORCH_ENABLE_MPS_FALLBACK=1` to let those ops run on CPU.
 
 ## CLI Reference
 
@@ -76,7 +106,7 @@ usage: aries -i INPUT -o OUTPUT_DIR [--ref-dir REF_DIR]
                     [--medoid-topk MEDOID_TOPK]
                     [--maxlen MAXLEN] [--device DEVICE] [--seed SEED]
 
---input, -i            Dataset name (BAliBASE, HOMSTRAD, QuanTest2) or an input FASTA folder.
+--input, -i            Path to a folder of input FASTA (.fasta) files (e.g. ./datasets/HOMSTRAD/inputs).
 --output-dir, -o       Directory to write ARIES alignments (FASTA). Created if missing.
 --ref-dir              Optional reference alignment directory (enables scoring).
 --compare              Run comparison aligners in addition to ARIES: clustalo and/or clustalw.
@@ -94,6 +124,7 @@ usage: aries -i INPUT -o OUTPUT_DIR [--ref-dir REF_DIR]
                        'ln' (ceil(ln(n))), or a positive integer k. Default: ln
 --maxlen               Max sequence length to include from dataset. If set above 1022, 
                        residues will be processed via PLM tiling. Default: 1022
---device               Device for PLM/ARIES (e.g., cuda or cpu). Default: cuda
+--device               Device for PLM/ARIES: 'auto' (cuda > mps > cpu), or an explicit
+                       'cuda', 'mps', or 'cpu'. Default: auto
 --seed                 Random seed. Default: 123
 ```

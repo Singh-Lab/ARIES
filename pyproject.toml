@@ -12,7 +12,9 @@ license = { text = "MIT" }
 authors = [{ name = "ARIES Contributors" }]
 
 dependencies = [
-  "torch==2.6.0+cu124",
+  "torch==2.6.0+cu124; sys_platform == 'linux'",
+  "torch==2.6.0; sys_platform != 'linux'",
+  "torchmetrics==1.8.2",
   "transformers==5.0.0",
   "tokenizers==0.22.2",
   "huggingface_hub==1.4.0",

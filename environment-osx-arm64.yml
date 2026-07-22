@@ -1,0 +1,27 @@
+name: ARIES
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - pip
+  - clustalo=1.2.4
+  - clustalw=2.1
+  - numpy=2.2.6
+  - scipy=1.15.2
+  - scikit-learn=1.7.2
+  - pandas=2.3.3
+  - matplotlib=3.9.1
+  - biopython=1.86
+  - tqdm=4.67.3
+  - requests=2.32.5
+  - protobuf=5.29.3
+  - sentencepiece=0.2.0
+  - python-levenshtein=0.27.3
+  - pip:
+      - torch==2.6.0
+      - torchmetrics==1.8.2
+      - transformers==5.0.0
+      - tokenizers==0.22.2
+      - huggingface_hub==1.4.0
+      - tiktoken==0.12.0

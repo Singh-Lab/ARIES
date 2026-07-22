@@ -1,16 +1,6 @@
 from utils import *
 from torch.utils.data import Dataset, DataLoader
 
-DATASET_DIRS = {
-    'BAliBASE': "./datasets/BAliBASE/inputs",
-    'HOMSTRAD': "./datasets/HOMSTRAD/inputs",
-    'QuanTest2': "./datasets/QuanTest2/inputs",
-}
-
-DATASET_XML_DIRS = {
-    'BAliBASE': "./datasets/BAliBASE/xml",
-}
-
 class MSADataset(Dataset):
     def __init__(self, msa_dir, min_len=0, max_len=1022):
         self.min_len = min_len
@@ -155,25 +145,23 @@ class FastaFolderDataset(MSADataset):
         return None, None
 
 
-def _resolve_dataset_dir(dataset_name_or_dir):
-    if dataset_name_or_dir in DATASET_DIRS:
-        return DATASET_DIRS[dataset_name_or_dir]
-    if os.path.isdir(dataset_name_or_dir):
-        return dataset_name_or_dir
-    raise ValueError(f"Unknown dataset or directory: {dataset_name_or_dir}")
+def _resolve_dataset_dir(input_dir):
+    if os.path.isdir(input_dir):
+        return input_dir
+    raise ValueError(
+        f"Input folder not found: {input_dir}. Pass a path to a folder of .fasta "
+        f"files (e.g. ./datasets/HOMSTRAD/inputs)."
+    )
 
 
-def _resolve_ref_dir(dataset_name_or_dir):
-    if dataset_name_or_dir in DATASET_DIRS:
-        base = os.path.dirname(DATASET_DIRS[dataset_name_or_dir])
-        ref_dir = os.path.join(base, "reference_outputs")
-    else:
-        if os.path.basename(dataset_name_or_dir) == "inputs":
-            base = os.path.dirname(dataset_name_or_dir)
-            ref_dir = os.path.join(base, "reference_outputs")
-        else:
-            ref_dir = None
-    return ref_dir if ref_dir and os.path.isdir(ref_dir) else None
+def _resolve_ref_dir(input_dir):
+    # Auto-detect references when the input folder is named 'inputs' with a
+    # sibling 'reference_outputs' (the layout of the bundled datasets).
+    if os.path.basename(os.path.normpath(input_dir)) == "inputs":
+        ref_dir = os.path.join(os.path.dirname(os.path.normpath(input_dir)), "reference_outputs")
+        if os.path.isdir(ref_dir):
+            return ref_dir
+    return None
 
 
 def get_dataset(dataset_name, include_refs=False, ref_dir=None, max_len=1022):

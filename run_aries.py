@@ -2,7 +2,7 @@ import argparse
 import os
 from typing import List
 
-from msa_dataset import get_dataset, prepare_ref_eval, DATASET_DIRS, DATASET_XML_DIRS, _resolve_ref_dir
+from msa_dataset import get_dataset, prepare_ref_eval, _resolve_ref_dir
 from msa_tools import evaluate_msa
 from scoring import load_core_domain, project_to_domain
 from plm_wrapper import PLMWrapper
@@ -10,6 +10,30 @@ from transformers.utils import logging as hf_logging
 from aries import ARIES
 from clustal import MSAClustalO, MSAClustalW
 from utils import set_seed
+
+
+def resolve_device(device):
+    """Resolve the requested device to one that is actually available.
+
+    'auto' picks the best available backend (cuda > mps > cpu). An explicit
+    device is honored when available, otherwise we warn and fall back to cpu.
+    """
+    cuda_ok = torch.cuda.is_available() and torch.cuda.device_count() > 0
+    mps_ok = getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available()
+
+    if device == "auto":
+        if cuda_ok:
+            return "cuda"
+        if mps_ok:
+            return "mps"
+        return "cpu"
+    if device.startswith("cuda") and not cuda_ok:
+        print("Warning: CUDA not available, falling back to CPU.")
+        return "cpu"
+    if device.startswith("mps") and not mps_ok:
+        print("Warning: MPS not available, falling back to CPU.")
+        return "cpu"
+    return device
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio import SeqIO
@@ -30,8 +54,8 @@ def parse_args():
     )
     epi = (
         "Examples:\n"
-        "  python run_aries.py --input BAliBASE --output-dir ./tmp/aries_out\n"
-        "  python run_aries.py --input HOMSTRAD --output-dir ./tmp/aries_out --compare clustalo\n"
+        "  python run_aries.py --input ./datasets/BAliBASE/inputs --output-dir ./tmp/aries_out\n"
+        "  python run_aries.py --input ./datasets/HOMSTRAD/inputs --output-dir ./tmp/aries_out --compare clustalo\n"
         "  python run_aries.py --input ./datasets/QuanTest2/inputs --ref-dir ./datasets/QuanTest2/reference_outputs "
         "--output-dir ./tmp/aries_out\n"
         "  python run_aries.py --input /path/to/fastas --output-dir ./tmp/aries_out --plm esm2-150M --batch 8\n"
@@ -46,8 +70,8 @@ def parse_args():
         "--input",
         required=True,
         help=(
-            "Dataset name (BAliBASE, HOMSTRAD, QuanTest2) or an input FASTA folder. "
-            "If a dataset name is given, inputs are resolved from ./datasets/<name>/inputs."
+            "Path to a folder of input FASTA (.fasta) files (e.g. ./datasets/HOMSTRAD/inputs). "
+            "Each .fasta is aligned independently."
         ),
     )
     p.add_argument(
@@ -62,8 +86,8 @@ def parse_args():
         help=(
             "Optional reference alignment directory. If provided, scoring is enabled. "
             "Reference files must be FASTA (.aln/.fasta/.fa) and match input file stems. "
-            "If omitted and --input is a known dataset, references are resolved from "
-            "./datasets/<name>/reference_outputs and scoring is enabled."
+            "If omitted and --input ends in 'inputs' with a sibling 'reference_outputs' "
+            "folder, references are auto-detected and scoring is enabled."
         ),
     )
     p.add_argument(
@@ -126,7 +150,7 @@ def parse_args():
     p.add_argument("--maxlen", type=int, default=1022, help="Max sequence length to include from dataset. Any alignments including sequenes longer than this will be skipped. Sequences longer than 1022 will be processed via PLM tiling.")
 
     # runtime
-    p.add_argument("--device", default="cuda", help="Device for PLM/ARIES (e.g., cuda or cpu).")
+    p.add_argument("--device", default="auto", help="Device for PLM/ARIES: 'auto' (cuda > mps > cpu), or an explicit 'cuda', 'mps', or 'cpu'.")
     p.add_argument("--seed", type=int, default=123, help="Random seed.")
     return p.parse_args()
 
@@ -145,7 +169,7 @@ def aries(
     blur=3.0,
     pad_char="X",
     medoid_topk="ln",
-    device="cuda",
+    device="auto",
     seed=123,
     maxlen=1022,
 ):
@@ -157,14 +181,12 @@ def aries(
     compare = compare or []
     if maxlen > 1022:
         print("Warning: --maxlen > 1022: sequences above 1022 residues will be processed via PLM tiling.")
-    if device.startswith("cuda") and (not torch.cuda.is_available() or torch.cuda.device_count() == 0):
-        print("Warning: CUDA not available, falling back to CPU.")
-        device = "cpu"
+    device = resolve_device(device)
     try:
         plm = PLMWrapper(plm).to(device)
     except RuntimeError as e:
-        if device.startswith("cuda") and "No CUDA GPUs are available" in str(e):
-            print("Warning: No CUDA GPUs available, falling back to CPU.")
+        if device != "cpu":
+            print(f"Warning: failed to place model on '{device}' ({e}); falling back to CPU.")
             device = "cpu"
             plm = PLMWrapper(plm).to(device)
         else:
@@ -183,11 +205,12 @@ def aries(
         "sim_metric": "l2-gm",
     }
 
-    resolved_ref_dir = ref_dir
-    if resolved_ref_dir is None and input_path in DATASET_DIRS:
-        resolved_ref_dir = _resolve_ref_dir(input_path)
+    resolved_ref_dir = ref_dir if ref_dir is not None else _resolve_ref_dir(input_path)
     include_refs = resolved_ref_dir is not None
-    resolved_xml_dir = xml_dir if xml_dir is not None else DATASET_XML_DIRS.get(input_path)
+    resolved_xml_dir = xml_dir
+    if resolved_xml_dir is None and os.path.basename(os.path.normpath(input_path)) == "inputs":
+        cand = os.path.join(os.path.dirname(os.path.normpath(input_path)), "xml")
+        resolved_xml_dir = cand if os.path.isdir(cand) else None
     loader = get_dataset(input_path, include_refs=include_refs, ref_dir=resolved_ref_dir, max_len=maxlen)
 
     clustalo_aligner = MSAClustalO() if "clustalo" in compare else None

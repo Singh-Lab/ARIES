@@ -2,6 +2,10 @@
 __pycache__/
 *.py[cod]
 
+# Build artifacts
+build/
+dist/
+
 # Temp / editor files
 *.tmp
 *.temp
