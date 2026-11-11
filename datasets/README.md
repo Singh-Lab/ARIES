@@ -5,8 +5,6 @@ Each folder in this repository corresponds to a dataset. Within each dataset dir
 - **`input/`** contains the **ungapped input FASTA files**.  
 - **`reference_outputs/`** contains the **reference alignment (`.aln`) files** used as gold-standard alignments for evaluation.
 
-All alignments with sequences longer than **1024 amino acids** have been removed, as they exceed the maximum supported length for our protein language models.
-
 ---
 
 ## BAliBASE
